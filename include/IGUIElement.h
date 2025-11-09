@@ -13,6 +13,8 @@
 #include "EGUIElementTypes.h"
 #include "EGUIAlignment.h"
 #include "IAttributes.h"
+#include <vector>
+#include <algorithm>
 
 namespace irr
 {
@@ -66,6 +68,22 @@ public:
 	IGUIElement* getParent() const
 	{
 		return Parent;
+	}
+
+
+	//! Sets Z order
+	void setZOrder(uint16_t z) {
+		if (zOrder != z) {
+			zOrder = z;
+			if (Parent)
+				Parent->zOrder = true;
+		}
+	}
+
+
+	//! Gets Z order
+	uint16_t getZOrder() {
+		return zOrder;
 	}
 
 
@@ -283,6 +301,8 @@ public:
 		{
 			child->updateAbsolutePosition();
 		}
+
+		zDirty = true;
 	}
 
 	//! Removes a child.
@@ -297,6 +317,8 @@ public:
 				Children.erase(it);
 				return;
 			}
+
+		zDirty = true;
 	}
 
 
@@ -309,16 +331,24 @@ public:
 
 
 	//! Draws the element and its children.
-	virtual void draw()
-	{
-		if ( isVisible() )
-		{
-			core::list<IGUIElement*>::Iterator it = Children.begin();
-			for (; it != Children.end(); ++it)
-				(*it)->draw();
-		}
-	}
+	virtual void draw() {
+		if (!IsVisible)
+			return;
 
+		std::vector<IGUIElement*> drawList;
+		drawList.reserve(Children.size());
+		for (auto it = Children.begin(); it != Children.end(); ++it)
+			drawList.push_back(*it);
+
+		std::stable_sort(drawList.begin(), drawList.end(),
+			[](IGUIElement* a, IGUIElement* b) {
+				return a->getZOrder() < b->getZOrder();
+			});
+
+		for (auto* child : drawList)
+			if (child && child->isVisible())
+				child->draw();
+	}
 
 	//! animate the element and its children.
 	virtual void OnPostRender(u32 timeMs)
@@ -957,6 +987,15 @@ protected:
 	}
 
 protected:
+
+	//! Is Z dirty?
+	bool zDirty = false;
+
+	//! Sorted Z children
+	std::vector<IGUIElement*> sortedChildren;
+
+	//! Z Order
+	uint16_t zOrder;
 
 	//! List of all children of this element
 	core::list<IGUIElement*> Children;
