@@ -2,7 +2,7 @@
 The Irrlicht Engine SDK version 1.8.5 (MODIFIED FOR LIME)
 
 This version of Irrlicht is modified for the use of the Lime game engine:
-https://github.com/Mechlus/Lime
+https://github.com/darttheg/Lime
 This is not the original version of Irrlicht.
 ==========================================================================
 
