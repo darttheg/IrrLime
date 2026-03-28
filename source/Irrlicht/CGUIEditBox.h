@@ -116,6 +116,12 @@ namespace gui
 		//! Returns true if the edit box is currently a password box.
 		virtual bool isPasswordBox() const;
 
+		//! Returns the cursor position.
+		virtual s32 getCursorPosition() const;
+
+		//! Sets the cursor position.
+		virtual void setCursorPosition(s32 position);
+
 		//! Updates the absolute position, splits text if required
 		virtual void updateAbsolutePosition();
 

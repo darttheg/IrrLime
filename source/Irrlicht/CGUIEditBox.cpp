@@ -209,6 +209,17 @@ bool CGUIEditBox::isPasswordBox() const
 	return PasswordBox;
 }
 
+s32 CGUIEditBox::getCursorPosition() const {
+	return CursorPos;
+}
+
+void CGUIEditBox::setCursorPosition(s32 position) {
+	CursorPos = core::clamp(position, 0, (s32)Text.size());
+	MarkBegin = CursorPos;
+	MarkEnd = CursorPos;
+	calculateScrollPos();
+	BlinkStartTime = os::Timer::getTime();
+}
 
 //! Sets text justification
 void CGUIEditBox::setTextAlignment(EGUI_ALIGNMENT horizontal, EGUI_ALIGNMENT vertical)

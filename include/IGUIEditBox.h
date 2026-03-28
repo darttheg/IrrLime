@@ -42,6 +42,12 @@ namespace gui
 		font of the active skin otherwise */
 		virtual IGUIFont* getActiveFont() const = 0;
 
+		//! Returns the cursor position.
+		virtual s32 getCursorPosition() const = 0;
+
+		//! Sets the cursor position.
+		virtual void setCursorPosition(s32 position) = 0;
+
 		//! Sets another color for the text.
 		/** If set, the edit box does not use the EGDC_BUTTON_TEXT color defined
 		in the skin, but the set color instead. You don't need to call
