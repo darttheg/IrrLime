@@ -8,6 +8,7 @@
 #include "path.h"
 #include "S3DVertex.h"
 #include "SMesh.h"
+#include "SMeshBufferLightMap.h"
 #include "vector2d.h"
 #include "vector3d.h"
 
@@ -19,129 +20,134 @@
 namespace irr
 {
 
-namespace scene
-{
-
-class CGLTFMeshFileLoader : public IMeshLoader
-{
-public:
-	CGLTFMeshFileLoader() noexcept;
-
-	bool isALoadableFileExtension(const io::path& filename) const override;
-
-	IAnimatedMesh* createMesh(io::IReadFile* file) override;
-
-private:
-	class BufferOffset
+	namespace scene
 	{
-	public:
-		BufferOffset(const std::vector<unsigned char>& buf,
-				const std::size_t offset);
 
-		BufferOffset(const BufferOffset& other,
-				const std::size_t fromOffset);
+		class CGLTFMeshFileLoader : public IMeshLoader
+		{
+		public:
+			CGLTFMeshFileLoader() noexcept;
 
-		unsigned char at(const std::size_t fromOffset) const;
-	private:
-		const std::vector<unsigned char>& m_buf;
-		std::size_t m_offset;
-		int m_filesize;
-	};
+			bool isALoadableFileExtension(const io::path& filename) const override;
 
-	class MeshExtractor {
-	public:
-		using vertex_t = video::S3DVertex;
+			IAnimatedMesh* createMesh(io::IReadFile* file) override;
 
-		MeshExtractor(const tinygltf::Model& model) noexcept;
+		private:
+			class BufferOffset
+			{
+			public:
+				BufferOffset(const std::vector<unsigned char>& buf,
+					const std::size_t offset);
 
-		MeshExtractor(const tinygltf::Model&& model) noexcept;
+				BufferOffset(const BufferOffset& other,
+					const std::size_t fromOffset);
 
-		/* Gets indices for the given mesh/primitive.
-		 *
-		 * Values are return in Irrlicht winding order.
-		 */
-		std::vector<u16> getIndices(const std::size_t meshIdx,
-				const std::size_t primitiveIdx) const;
+				unsigned char at(const std::size_t fromOffset) const;
+			private:
+				const std::vector<unsigned char>& m_buf;
+				std::size_t m_offset;
+				int m_filesize;
+			};
 
-		std::vector<vertex_t> getVertices(std::size_t meshIdx,
-				const std::size_t primitiveIdx) const;
+			class MeshExtractor {
+			public:
+				using vertex_t = video::S3DVertex2TCoords;
 
-		std::size_t getMeshCount() const;
+				MeshExtractor(const tinygltf::Model& model) noexcept;
 
-		std::size_t getPrimitiveCount(const std::size_t meshIdx) const;
+				MeshExtractor(const tinygltf::Model&& model) noexcept;
 
-	private:
-		tinygltf::Model m_model;
+				/* Gets indices for the given mesh/primitive.
+				 *
+				 * Values are return in Irrlicht winding order.
+				 */
+				std::vector<u16> getIndices(const std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
 
-		template <typename T>
-		static T readPrimitive(const BufferOffset& readFrom);
+				std::vector<vertex_t> getVertices(std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
 
-		static core::vector2df readVec2DF(
-				const BufferOffset& readFrom);
+				std::size_t getMeshCount() const;
 
-		/* Read a vec3df from a buffer with transformations applied.
-		 *
-		 * Values are returned in Irrlicht coordinates.
-		 */
-		static core::vector3df readVec3DF(
-				const BufferOffset& readFrom,
-				const core::vector3df scale);
+				std::size_t getPrimitiveCount(const std::size_t meshIdx) const;
 
-		void copyPositions(const std::size_t accessorIdx,
-				std::vector<vertex_t>& vertices) const;
+			private:
+				tinygltf::Model m_model;
 
-		void copyNormals(const std::size_t accessorIdx,
-				std::vector<vertex_t>& vertices) const;
+				template <typename T>
+				static T readPrimitive(const BufferOffset& readFrom);
 
-		void copyTCoords(const std::size_t accessorIdx,
-				std::vector<vertex_t>& vertices) const;
+				static core::vector2df readVec2DF(
+					const BufferOffset& readFrom);
 
-		/* Get the scale factor from the glTF mesh information.
-		 *
-		 * Returns vec3(1.0, 1.0, 1.0) if no scale factor is present.
-		 */
-		core::vector3df getScale() const;
+				/* Read a vec3df from a buffer with transformations applied.
+				 *
+				 * Values are returned in Irrlicht coordinates.
+				 */
+				static core::vector3df readVec3DF(
+					const BufferOffset& readFrom,
+					const core::vector3df scale);
 
-		std::size_t getElemCount(const std::size_t accessorIdx) const;
+				void copyPositions(const std::size_t accessorIdx,
+					std::vector<vertex_t>& vertices) const;
 
-		std::size_t getByteStride(const std::size_t accessorIdx) const;
+				void copyNormals(const std::size_t accessorIdx,
+					std::vector<vertex_t>& vertices) const;
 
-		bool isAccessorNormalized(const std::size_t accessorIdx) const;
+				void copyTCoords(const std::size_t accessorIdx,
+					std::vector<vertex_t>& vertices) const;
 
-		BufferOffset getBuffer(const std::size_t accessorIdx) const;
+				void copyTCoords2(const std::size_t accessorIdx,
+					std::vector<vertex_t>& vertices) const;
 
-		std::size_t getIndicesAccessorIdx(const std::size_t meshIdx,
-				const std::size_t primitiveIdx) const;
+				/* Get the scale factor from the glTF mesh information.
+				 *
+				 * Returns vec3(1.0, 1.0, 1.0) if no scale factor is present.
+				 */
+				core::vector3df getScale() const;
 
-		std::size_t getPositionAccessorIdx(const std::size_t meshIdx,
-				const std::size_t primitiveIdx) const;
+				std::size_t getElemCount(const std::size_t accessorIdx) const;
 
-		bool isAnimated() const;
+				std::size_t getByteStride(const std::size_t accessorIdx) const;
 
-		/* Get the accessor id of the normals of a primitive.
-		 *
-		 * -1 is returned if none are present.
-		 */
-		std::size_t getNormalAccessorIdx(const std::size_t meshIdx,
-				const std::size_t primitiveIdx) const;
+				bool isAccessorNormalized(const std::size_t accessorIdx) const;
 
-		/* Get the accessor id for the tcoords of a primitive.
-		 *
-		 * -1 is returned if none are present.
-		 */
-		std::size_t getTCoordAccessorIdx(const std::size_t meshIdx,
-				const std::size_t primitiveIdx) const;
-	};
+				BufferOffset getBuffer(const std::size_t accessorIdx) const;
 
-	void loadPrimitives(const MeshExtractor& parser, SMesh* mesh);
+				std::size_t getIndicesAccessorIdx(const std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
 
-	static bool tryParseGLTF(io::IReadFile* file,
-			tinygltf::Model& model);
-};
+				std::size_t getPositionAccessorIdx(const std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
 
-} // namespace scene
+				bool isAnimated() const;
+
+				/* Get the accessor id of the normals of a primitive.
+				 *
+				 * -1 is returned if none are present.
+				 */
+				std::size_t getNormalAccessorIdx(const std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
+
+				/* Get the accessor id for the tcoords of a primitive.
+				 *
+				 * -1 is returned if none are present.
+				 */
+				std::size_t getTCoordAccessorIdx(const std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
+
+				std::size_t getTCoord1AccessorIdx(const std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
+			};
+
+			void loadPrimitives(const MeshExtractor& parser, SMesh* mesh);
+
+			static bool tryParseGLTF(io::IReadFile* file,
+				tinygltf::Model& model);
+		};
+
+	} // namespace scene
 
 } // namespace irr
 
 #endif // __C_GLTF_MESH_FILE_LOADER_INCLUDED__
-

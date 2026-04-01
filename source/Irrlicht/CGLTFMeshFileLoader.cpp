@@ -38,482 +38,536 @@
 
 namespace irr {
 
-namespace scene {
+	namespace scene {
 
-CGLTFMeshFileLoader::BufferOffset::BufferOffset(
-		const std::vector<unsigned char>& buf,
-		const std::size_t offset)
-	: m_buf(buf)
-	, m_offset(offset)
-{
-}
-
-CGLTFMeshFileLoader::BufferOffset::BufferOffset(
-		const CGLTFMeshFileLoader::BufferOffset& other,
-		const std::size_t fromOffset)
-	: m_buf(other.m_buf)
-	, m_offset(other.m_offset + fromOffset)
-{
-}
-
-/**
- * Get a raw unsigned char (ubyte) from a buffer offset.
-*/
-unsigned char CGLTFMeshFileLoader::BufferOffset::at(
-		const std::size_t fromOffset) const
-{
-	return m_buf.at(m_offset + fromOffset);
-}
-
-CGLTFMeshFileLoader::CGLTFMeshFileLoader() noexcept
-{
-}
-
-/**
- * The most basic portion of the code base. This tells irllicht if this file has a .gltf extension.
-*/
-bool CGLTFMeshFileLoader::isALoadableFileExtension(
-		const io::path& filename) const
-{
-	return core::hasFileExtension(filename, "gltf");
-}
-
-/**
- * Entry point into loading a GLTF model.
-*/
-IAnimatedMesh* CGLTFMeshFileLoader::createMesh(io::IReadFile* file)
-{
-	tinygltf::Model model {};
-
-	if (file->getSize() <= 0 || !tryParseGLTF(file, model)) {
-		return nullptr;
-	}
-
-	MeshExtractor parser(std::move(model));
-	SMesh* baseMesh(new SMesh {});
-	loadPrimitives(parser, baseMesh);
-
-	SAnimatedMesh* animatedMesh(new SAnimatedMesh {});
-	animatedMesh->addMesh(baseMesh);
-	baseMesh->drop();
-
-	return animatedMesh;
-}
-
-
-/**
- * Load up the rawest form of the model. The vertex positions and indices.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes
- * If material is undefined, then a default material MUST be used.
-*/
-void CGLTFMeshFileLoader::loadPrimitives(
-		const MeshExtractor& parser,
-		SMesh* mesh)
-{
-	for (std::size_t i = 0; i < parser.getMeshCount(); ++i) {
-		for (std::size_t j = 0; j < parser.getPrimitiveCount(i); ++j) {
-			auto indices = parser.getIndices(i, j);
-			auto vertices = parser.getVertices(i, j);
-
-			SMeshBuffer* meshbuf(new SMeshBuffer {});
-			meshbuf->append(vertices.data(), vertices.size(),
-				indices.data(), indices.size());
-			mesh->addMeshBuffer(meshbuf);
-			meshbuf->drop();
+		CGLTFMeshFileLoader::BufferOffset::BufferOffset(
+			const std::vector<unsigned char>& buf,
+			const std::size_t offset)
+			: m_buf(buf)
+			, m_offset(offset)
+		{
 		}
-	}
-}
 
-CGLTFMeshFileLoader::MeshExtractor::MeshExtractor(
-		const tinygltf::Model& model) noexcept
-	: m_model(model)
-{
-}
+		CGLTFMeshFileLoader::BufferOffset::BufferOffset(
+			const CGLTFMeshFileLoader::BufferOffset& other,
+			const std::size_t fromOffset)
+			: m_buf(other.m_buf)
+			, m_offset(other.m_offset + fromOffset)
+		{
+		}
 
-CGLTFMeshFileLoader::MeshExtractor::MeshExtractor(
-		const tinygltf::Model&& model) noexcept
-	: m_model(model)
-{
-}
+		/**
+		 * Get a raw unsigned char (ubyte) from a buffer offset.
+		*/
+		unsigned char CGLTFMeshFileLoader::BufferOffset::at(
+			const std::size_t fromOffset) const
+		{
+			return m_buf.at(m_offset + fromOffset);
+		}
 
-/**
- * Extracts GLTF mesh indices into the irrlicht model.
-*/
-std::vector<u16> CGLTFMeshFileLoader::MeshExtractor::getIndices(
-		const std::size_t meshIdx,
-		const std::size_t primitiveIdx) const
-{
-	const auto accessorIdx = getIndicesAccessorIdx(meshIdx, primitiveIdx);
-	const auto& buf = getBuffer(accessorIdx);
+		CGLTFMeshFileLoader::CGLTFMeshFileLoader() noexcept
+		{
+		}
 
-	std::vector<u16> indices{};
-	const auto count = getElemCount(accessorIdx);
-	for (std::size_t i = 0; i < count; ++i) {
-		std::size_t elemIdx = count - i - 1;
-		indices.push_back(readPrimitive<u16>(
-			BufferOffset(buf, elemIdx * sizeof(u16))));
-	}
+		/**
+		 * The most basic portion of the code base. This tells irllicht if this file has a .gltf extension.
+		*/
+		bool CGLTFMeshFileLoader::isALoadableFileExtension(
+			const io::path& filename) const
+		{
+			return core::hasFileExtension(filename, "gltf");
+		}
 
-	return indices;
-}
+		/**
+		 * Entry point into loading a GLTF model.
+		*/
+		IAnimatedMesh* CGLTFMeshFileLoader::createMesh(io::IReadFile* file)
+		{
+			tinygltf::Model model{};
 
-/**
- * Create a vector of video::S3DVertex (model data) from a mesh & primitive index.
-*/
-std::vector<video::S3DVertex> CGLTFMeshFileLoader::MeshExtractor::getVertices(
-		const std::size_t meshIdx,
-		const std::size_t primitiveIdx) const
-{
-	const auto positionAccessorIdx = getPositionAccessorIdx(
-			meshIdx, primitiveIdx);
-	std::vector<vertex_t> vertices{};
-	vertices.resize(getElemCount(positionAccessorIdx));
-	copyPositions(positionAccessorIdx, vertices);
+			if (file->getSize() <= 0 || !tryParseGLTF(file, model)) {
+				return nullptr;
+			}
 
-	const auto normalAccessorIdx = getNormalAccessorIdx(
-			meshIdx, primitiveIdx);
-	if (normalAccessorIdx != static_cast<std::size_t>(-1)) {
-		copyNormals(normalAccessorIdx, vertices);
-	}
+			MeshExtractor parser(std::move(model));
+			SMesh* baseMesh(new SMesh{});
+			loadPrimitives(parser, baseMesh);
+			baseMesh->recalculateBoundingBox();
 
-	const auto tCoordAccessorIdx = getTCoordAccessorIdx(
-			meshIdx, primitiveIdx);
-	if (tCoordAccessorIdx != static_cast<std::size_t>(-1)) {
-		copyTCoords(tCoordAccessorIdx, vertices);
-	}
+			SAnimatedMesh* animatedMesh(new SAnimatedMesh{});
+			animatedMesh->addMesh(baseMesh);
+			baseMesh->drop();
 
-	return vertices;
-}
+			animatedMesh->recalculateBoundingBox();
+			return animatedMesh;
+		}
 
-/**
- * Get the amount of meshes that a model contains.
-*/
-std::size_t CGLTFMeshFileLoader::MeshExtractor::getMeshCount() const
-{
-	return m_model.meshes.size();
-}
 
-/**
- * Get the amount of primitives that a mesh in a model contains.
-*/
-std::size_t CGLTFMeshFileLoader::MeshExtractor::getPrimitiveCount(
-		const std::size_t meshIdx) const
-{
-	return m_model.meshes[meshIdx].primitives.size();
-}
+		/**
+		 * Load up the rawest form of the model. The vertex positions and indices.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes
+		 * If material is undefined, then a default material MUST be used.
+		*/
+		void CGLTFMeshFileLoader::loadPrimitives(
+			const MeshExtractor& parser,
+			SMesh* mesh)
+		{
+			for (std::size_t i = 0; i < parser.getMeshCount(); ++i) {
+				for (std::size_t j = 0; j < parser.getPrimitiveCount(i); ++j) {
+					auto indices = parser.getIndices(i, j);
+					auto vertices = parser.getVertices(i, j);
 
-/**
- * Templated buffer reader. Based on type width.
- * This is specifically used to build upon to read more complex data types.
- * It is also used raw to read arrays directly.
- * Basically we're using the width of the type to infer 
- * how big of a gap we have from the beginning of the buffer.
-*/
-template <typename T>
-T CGLTFMeshFileLoader::MeshExtractor::readPrimitive(
-		const BufferOffset& readFrom)
-{
-	unsigned char d[sizeof(T)]{};
-	for (std::size_t i = 0; i < sizeof(T); ++i) {
-		d[i] = readFrom.at(i);
-	}
-	T dest;
-	std::memcpy(&dest, d, sizeof(dest));
-	return dest;
-}
+					SMeshBufferLightMap* meshbuf(new SMeshBufferLightMap{});
+					meshbuf->append(vertices.data(), vertices.size(),
+						indices.data(), indices.size());
+					mesh->addMeshBuffer(meshbuf);
+					meshbuf->drop();
+				}
+			}
+		}
 
-/**
- * Read a vector2df from a buffer at an offset.
- * @return vec2 core::Vector2df
-*/
-core::vector2df CGLTFMeshFileLoader::MeshExtractor::readVec2DF(
-		const CGLTFMeshFileLoader::BufferOffset& readFrom)
-{
-	return core::vector2df(readPrimitive<float>(readFrom),
-		readPrimitive<float>(BufferOffset(readFrom, sizeof(float))));
+		CGLTFMeshFileLoader::MeshExtractor::MeshExtractor(
+			const tinygltf::Model& model) noexcept
+			: m_model(model)
+		{
+		}
 
-}
+		CGLTFMeshFileLoader::MeshExtractor::MeshExtractor(
+			const tinygltf::Model&& model) noexcept
+			: m_model(model)
+		{
+		}
 
-/**
- * Read a vector3df from a buffer at an offset.
- * @return vec3 core::Vector3df
-*/
-core::vector3df CGLTFMeshFileLoader::MeshExtractor::readVec3DF(
-		const BufferOffset& readFrom,
-		const core::vector3df scale = {1.0f,1.0f,1.0f})
-{
-	return core::vector3df(
-		scale.X * readPrimitive<float>(readFrom),
-		scale.Y * readPrimitive<float>(BufferOffset(readFrom, sizeof(float))),
-		-scale.Z * readPrimitive<float>(BufferOffset(readFrom, 2 *
-		sizeof(float))));
-}
+		/**
+		 * Extracts GLTF mesh indices into the irrlicht model.
+		*/
+		std::vector<u16> CGLTFMeshFileLoader::MeshExtractor::getIndices(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
+		{
+			const auto accessorIdx = getIndicesAccessorIdx(meshIdx, primitiveIdx);
+			const auto& buf = getBuffer(accessorIdx);
 
-/**
- * Streams vertex positions raw data into usable buffer via reference.
- * Buffer: ref Vector<video::S3DVertex>
-*/
-void CGLTFMeshFileLoader::MeshExtractor::copyPositions(
-		const std::size_t accessorIdx,
-		std::vector<vertex_t>& vertices) const
-{
+			std::vector<u16> indices{};
+			const auto count = getElemCount(accessorIdx);
+			for (std::size_t i = 0; i < count; ++i) {
+				std::size_t elemIdx = count - i - 1;
+				indices.push_back(readPrimitive<u16>(
+					BufferOffset(buf, elemIdx * sizeof(u16))));
+			}
 
-	const auto& buffer = getBuffer(accessorIdx);
-	const auto count = getElemCount(accessorIdx);
-	const auto byteStride = getByteStride(accessorIdx);
+			return indices;
+		}
 
-	for (std::size_t i = 0; i < count; i++) {
-		const auto v = readVec3DF(BufferOffset(buffer,
-			(byteStride * i)), getScale());
-		vertices[i].Pos = v;
-	}
-}
+		/**
+		 * Create a vector of video::S3DVertex (model data) from a mesh & primitive index.
+		*/
+		std::vector<CGLTFMeshFileLoader::MeshExtractor::vertex_t> CGLTFMeshFileLoader::MeshExtractor::getVertices(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
+		{
+			const auto positionAccessorIdx = getPositionAccessorIdx(
+				meshIdx, primitiveIdx);
+			std::vector<vertex_t> vertices{};
+			vertices.resize(getElemCount(positionAccessorIdx));
+			for (auto& v : vertices) {
+				v.Color = video::SColor(255, 255, 255, 255);
+			}
+			copyPositions(positionAccessorIdx, vertices);
 
-/**
- * Streams normals raw data into usable buffer via reference.
- * Buffer: ref Vector<video::S3DVertex>
-*/
-void CGLTFMeshFileLoader::MeshExtractor::copyNormals(
-		const std::size_t accessorIdx,
-		std::vector<vertex_t>& vertices) const
-{
-	const auto& buffer = getBuffer(accessorIdx);
-	const auto count = getElemCount(accessorIdx);
-	
-	for (std::size_t i = 0; i < count; i++) {
-		const auto n = readVec3DF(BufferOffset(buffer,
-			3 * sizeof(float) * i));
-		vertices[i].Normal = n;
-	}
-}
+			const auto normalAccessorIdx = getNormalAccessorIdx(
+				meshIdx, primitiveIdx);
+			if (normalAccessorIdx != static_cast<std::size_t>(-1)) {
+				copyNormals(normalAccessorIdx, vertices);
+			}
 
-/**
- * Streams texture coordinate raw data into usable buffer via reference.
- * Buffer: ref Vector<video::S3DVertex>
-*/
-void CGLTFMeshFileLoader::MeshExtractor::copyTCoords(
-		const std::size_t accessorIdx,
-		std::vector<vertex_t>& vertices) const
-{
+			const auto tCoordAccessorIdx = getTCoordAccessorIdx(
+				meshIdx, primitiveIdx);
+			if (tCoordAccessorIdx != static_cast<std::size_t>(-1)) {
+				copyTCoords(tCoordAccessorIdx, vertices);
+			}
 
-	const auto& buffer = getBuffer(accessorIdx);
-	const auto count = getElemCount(accessorIdx);
+			const auto tCoord1AccessorIdx = getTCoord1AccessorIdx(
+				meshIdx, primitiveIdx);
+			if (tCoord1AccessorIdx != static_cast<std::size_t>(-1)) {
+				copyTCoords2(tCoord1AccessorIdx, vertices);
+			}
 
-	for (std::size_t i = 0; i < count; ++i) {
-		const auto t = readVec2DF(BufferOffset(buffer,
-			2 * sizeof(float) * i));
-		vertices[i].TCoords = t;
-	}
-}
+			return vertices;
+		}
 
-/**
- * Gets the scale of a model's node via a reference Vector3df.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-node
- * Type: number[3] (tinygltf: vector<double>)
- * Required: NO
- * @returns: core::vector2df
-*/
-core::vector3df CGLTFMeshFileLoader::MeshExtractor::getScale() const
-{
-	core::vector3df buffer{1.0f,1.0f,1.0f};
-	if (m_model.nodes[0].scale.size() == 3) {
-		buffer.X = static_cast<float>(m_model.nodes[0].scale[0]);
-		buffer.Y = static_cast<float>(m_model.nodes[0].scale[1]);
-		buffer.Z = static_cast<float>(m_model.nodes[0].scale[2]);
-	}
-	return buffer;
-}
+		/**
+		 * Get the amount of meshes that a model contains.
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getMeshCount() const
+		{
+			return m_model.meshes.size();
+		}
 
-/**
- * The number of elements referenced by this accessor, not to be confused with the number of bytes or number of components.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_accessor_count
- * Type: Integer
- * Required: YES
-*/
-std::size_t CGLTFMeshFileLoader::MeshExtractor::getElemCount(
-		const std::size_t accessorIdx) const
-{
-	return m_model.accessors[accessorIdx].count;
-}
+		/**
+		 * Get the amount of primitives that a mesh in a model contains.
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getPrimitiveCount(
+			const std::size_t meshIdx) const
+		{
+			return m_model.meshes[meshIdx].primitives.size();
+		}
 
-/**
- * The stride, in bytes, between vertex attributes.
- * When this is not defined, data is tightly packed.
- * When two or more accessors use the same buffer view, this field MUST be defined.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_bufferview_bytestride
- * Required: NO
-*/
-std::size_t CGLTFMeshFileLoader::MeshExtractor::getByteStride(
-		const std::size_t accessorIdx) const
-{
-	const auto& accessor = m_model.accessors[accessorIdx];
-	const auto& view = m_model.bufferViews[accessor.bufferView];
-	return accessor.ByteStride(view);
-}
+		/**
+		 * Templated buffer reader. Based on type width.
+		 * This is specifically used to build upon to read more complex data types.
+		 * It is also used raw to read arrays directly.
+		 * Basically we're using the width of the type to infer
+		 * how big of a gap we have from the beginning of the buffer.
+		*/
+		template <typename T>
+		T CGLTFMeshFileLoader::MeshExtractor::readPrimitive(
+			const BufferOffset& readFrom)
+		{
+			unsigned char d[sizeof(T)]{};
+			for (std::size_t i = 0; i < sizeof(T); ++i) {
+				d[i] = readFrom.at(i);
+			}
+			T dest;
+			std::memcpy(&dest, d, sizeof(dest));
+			return dest;
+		}
 
-/**
- * Specifies whether integer data values are normalized (true) to [0, 1] (for unsigned types) 
- * or to [-1, 1] (for signed types) when they are accessed. This property MUST NOT be set to
- * true for accessors with FLOAT or UNSIGNED_INT component type.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_accessor_normalized
- * Required: NO
-*/
-bool CGLTFMeshFileLoader::MeshExtractor::isAccessorNormalized(
-	const std::size_t accessorIdx) const
-{
-	const auto& accessor = m_model.accessors[accessorIdx];
-	return accessor.normalized;
-}
+		/**
+		 * Read a vector2df from a buffer at an offset.
+		 * @return vec2 core::Vector2df
+		*/
+		core::vector2df CGLTFMeshFileLoader::MeshExtractor::readVec2DF(
+			const CGLTFMeshFileLoader::BufferOffset& readFrom)
+		{
+			return core::vector2df(readPrimitive<float>(readFrom),
+				readPrimitive<float>(BufferOffset(readFrom, sizeof(float))));
 
-/**
- * Walk through the complex chain of the model to extract the required buffer.
- * Accessor -> BufferView -> Buffer
-*/
-CGLTFMeshFileLoader::BufferOffset CGLTFMeshFileLoader::MeshExtractor::getBuffer(
-		const std::size_t accessorIdx) const
-{
-	const auto& accessor = m_model.accessors[accessorIdx];
-	const auto& view = m_model.bufferViews[accessor.bufferView];
-	const auto& buffer = m_model.buffers[view.buffer];
+		}
 
-	return BufferOffset(buffer.data, view.byteOffset);
-}
+		/**
+		 * Read a vector3df from a buffer at an offset.
+		 * @return vec3 core::Vector3df
+		*/
+		core::vector3df CGLTFMeshFileLoader::MeshExtractor::readVec3DF(
+			const BufferOffset& readFrom,
+			const core::vector3df scale = { 1.0f,1.0f,1.0f })
+		{
+			return core::vector3df(
+				scale.X * readPrimitive<float>(readFrom),
+				scale.Y * readPrimitive<float>(BufferOffset(readFrom, sizeof(float))),
+				-scale.Z * readPrimitive<float>(BufferOffset(readFrom, 2 *
+					sizeof(float))));
+		}
 
-/**
- * The index of the accessor that contains the vertex indices. 
- * When this is undefined, the primitive defines non-indexed geometry. 
- * When defined, the accessor MUST have SCALAR type and an unsigned integer component type.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_mesh_primitive_indices
- * Type: Integer
- * Required: NO
-*/
-std::size_t CGLTFMeshFileLoader::MeshExtractor::getIndicesAccessorIdx(
-		const std::size_t meshIdx,
-		const std::size_t primitiveIdx) const
-{
-	return m_model.meshes[meshIdx].primitives[primitiveIdx].indices;
-}
+		/**
+		 * Streams vertex positions raw data into usable buffer via reference.
+		 * Buffer: ref Vector<video::S3DVertex>
+		*/
+		void CGLTFMeshFileLoader::MeshExtractor::copyPositions(
+			const std::size_t accessorIdx,
+			std::vector<vertex_t>& vertices) const
+		{
 
-/**
- * The index of the accessor that contains the POSITIONs.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
- * Type: VEC3 (Float)
- * ! Required: YES (Appears so, needs another pair of eyes to research.)
-*/
-std::size_t CGLTFMeshFileLoader::MeshExtractor::getPositionAccessorIdx(
-		const std::size_t meshIdx,
-		const std::size_t primitiveIdx) const
-{
-	return m_model.meshes[meshIdx].primitives[primitiveIdx]
-		.attributes.find("POSITION")->second;
-}
+			const auto& buffer = getBuffer(accessorIdx);
+			const auto count = getElemCount(accessorIdx);
+			const auto byteStride = getByteStride(accessorIdx);
 
-/**
- * Get if a model contains animation.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-animation
- * Type: vector<Animation>
- * Required: NO
-*/
-bool CGLTFMeshFileLoader::MeshExtractor::isAnimated() const {
-	return m_model.animations.size() > 0;
-}
+			for (std::size_t i = 0; i < count; i++) {
+				const auto v = readVec3DF(BufferOffset(buffer,
+					(byteStride * i)), getScale());
+				vertices[i].Pos = v;
+			}
+		}
 
-/**
- * The index of the accessor that contains the NORMALs.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
- * Type: VEC3 (Float)
- * ! Required: NO (Appears to not be, needs another pair of eyes to research.)
-*/
-std::size_t CGLTFMeshFileLoader::MeshExtractor::getNormalAccessorIdx(
-		const std::size_t meshIdx,
-		const std::size_t primitiveIdx) const
-{
-	const auto& attributes = m_model.meshes[meshIdx]
-		.primitives[primitiveIdx].attributes;
-	const auto result = attributes.find("NORMAL");
+		/**
+		 * Streams normals raw data into usable buffer via reference.
+		 * Buffer: ref Vector<video::S3DVertex>
+		*/
+		void CGLTFMeshFileLoader::MeshExtractor::copyNormals(
+			const std::size_t accessorIdx,
+			std::vector<vertex_t>& vertices) const
+		{
+			const auto& buffer = getBuffer(accessorIdx);
+			const auto count = getElemCount(accessorIdx);
+			const auto byteStride = getByteStride(accessorIdx);
 
-	if (result == attributes.end()) {
-		return -1;
-	} else {
-		return result->second;
-	}
-}
+			for (std::size_t i = 0; i < count; i++) {
+				const auto n = readVec3DF(BufferOffset(buffer,
+					(byteStride * i)));
+				vertices[i].Normal = n;
+			}
+		}
 
-/**
- * The index of the accessor that contains the NORMALs.
- * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
- * Type: VEC3 (Float)
- * ! Required: YES (Appears so, needs another pair of eyes to research.)
-*/
-std::size_t CGLTFMeshFileLoader::MeshExtractor::getTCoordAccessorIdx(
-		const std::size_t meshIdx,
-		const std::size_t primitiveIdx) const
-{
-	const auto& attributes = m_model.meshes[meshIdx]
-		.primitives[primitiveIdx].attributes;
-	const auto result = attributes.find("TEXCOORD_0");
+		/**
+		 * Streams texture coordinate raw data into usable buffer via reference.
+		 * Buffer: ref Vector<video::S3DVertex>
+		*/
+		void CGLTFMeshFileLoader::MeshExtractor::copyTCoords(
+			const std::size_t accessorIdx,
+			std::vector<vertex_t>& vertices) const
+		{
 
-	if (result == attributes.end()) {
-		return -1;
-	} else {
-		return result->second;
-	}
-}
+			const auto& buffer = getBuffer(accessorIdx);
+			const auto count = getElemCount(accessorIdx);
+			const auto byteStride = getByteStride(accessorIdx);
 
-static bool FakeImageLoader(
-	tinygltf::Image* img,
-	const int image_idx,
-	std::string* err,
-	std::string* warn,
-	int req_width,
-	int req_height,
-	const unsigned char* bytes,
-	int size,
-	void* user_data)
-{
-	return true;
-}
+			for (std::size_t i = 0; i < count; ++i) {
+				const auto t = readVec2DF(BufferOffset(buffer,
+					(byteStride * i)));
+				vertices[i].TCoords = t;
+			}
+		}
 
-/**
- * This is where the actual model's GLTF file is loaded and parsed by tinygltf.
-*/
-bool CGLTFMeshFileLoader::tryParseGLTF(io::IReadFile* file,
-		tinygltf::Model& model)
-{
-	tinygltf::TinyGLTF loader{};
+		/**
+		 * Streams texture coordinate (set 1 / lightmap) raw data into usable buffer via reference.
+		 * Buffer: ref Vector<video::S3DVertex2TCoords>
+		*/
+		void CGLTFMeshFileLoader::MeshExtractor::copyTCoords2(
+			const std::size_t accessorIdx,
+			std::vector<vertex_t>& vertices) const
+		{
+			const auto& buffer = getBuffer(accessorIdx);
+			const auto count = getElemCount(accessorIdx);
+			const auto byteStride = getByteStride(accessorIdx);
 
-	loader.SetImageLoader(FakeImageLoader, nullptr);
+			for (std::size_t i = 0; i < count; ++i) {
+				const auto t = readVec2DF(BufferOffset(buffer,
+					(byteStride * i)));
+				vertices[i].TCoords2 = t;
+			}
+		}
 
-	std::string warn;
-	std::string err;
-	const long size = file->getSize();
+		/**
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-node
+		 * Type: number[3] (tinygltf: vector<double>)
+		 * Required: NO
+		 * @returns: core::vector2df
+		*/
+		core::vector3df CGLTFMeshFileLoader::MeshExtractor::getScale() const
+		{
+			core::vector3df buffer{ 1.0f,1.0f,1.0f };
+			if (!m_model.nodes.empty() && m_model.nodes[0].scale.size() == 3) {
+				buffer.X = static_cast<float>(m_model.nodes[0].scale[0]);
+				buffer.Y = static_cast<float>(m_model.nodes[0].scale[1]);
+				buffer.Z = static_cast<float>(m_model.nodes[0].scale[2]);
+			}
+			return buffer;
+		}
 
-	auto buf = std::make_unique<char[]>(size);
-	long readBytes = file->read(buf.get(), size);
+		/**
+		 * The number of elements referenced by this accessor, not to be confused with the number of bytes or number of components.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_accessor_count
+		 * Type: Integer
+		 * Required: YES
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getElemCount(
+			const std::size_t accessorIdx) const
+		{
+			return m_model.accessors[accessorIdx].count;
+		}
 
-	io::path filename = file->getFileName();
-	s32 slash1 = filename.findLast('/');
-	s32 slash2 = filename.findLast('\\');
-	s32 slash = slash1 > slash2 ? slash1 : slash2;
-	io::path baseDir = (slash >= 0) ? filename.subString(0, slash + 1) : "";
+		/**
+		 * The stride, in bytes, between vertex attributes.
+		 * When this is not defined, data is tightly packed.
+		 * When two or more accessors use the same buffer view, this field MUST be defined.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_bufferview_bytestride
+		 * Required: NO
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getByteStride(
+			const std::size_t accessorIdx) const
+		{
+			const auto& accessor = m_model.accessors[accessorIdx];
+			const auto& view = m_model.bufferViews[accessor.bufferView];
+			return accessor.ByteStride(view);
+		}
 
-	bool ok = loader.LoadASCIIFromString(
-		&model,
-		&err,
-		&warn,
-		buf.get(),
-		size,
-		baseDir.c_str(),
-		1
-	);
+		/**
+		 * Specifies whether integer data values are normalized (true) to [0, 1] (for unsigned types)
+		 * or to [-1, 1] (for signed types) when they are accessed. This property MUST NOT be set to
+		 * true for accessors with FLOAT or UNSIGNED_INT component type.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_accessor_normalized
+		 * Required: NO
+		*/
+		bool CGLTFMeshFileLoader::MeshExtractor::isAccessorNormalized(
+			const std::size_t accessorIdx) const
+		{
+			const auto& accessor = m_model.accessors[accessorIdx];
+			return accessor.normalized;
+		}
 
-	if (!warn.empty()) os::Printer::log(warn.c_str(), ELL_WARNING);
-	if (!err.empty()) os::Printer::log(err.c_str(), ELL_ERROR);
+		/**
+		 * Walk through the complex chain of the model to extract the required buffer.
+		 * Accessor -> BufferView -> Buffer
+		*/
+		CGLTFMeshFileLoader::BufferOffset CGLTFMeshFileLoader::MeshExtractor::getBuffer(
+			const std::size_t accessorIdx) const
+		{
+			const auto& accessor = m_model.accessors[accessorIdx];
+			const auto& view = m_model.bufferViews[accessor.bufferView];
+			const auto& buffer = m_model.buffers[view.buffer];
 
-	return ok;
-}
+			return BufferOffset(buffer.data, view.byteOffset);
+		}
 
-} // namespace scene
+		/**
+		 * The index of the accessor that contains the vertex indices.
+		 * When this is undefined, the primitive defines non-indexed geometry.
+		 * When defined, the accessor MUST have SCALAR type and an unsigned integer component type.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_mesh_primitive_indices
+		 * Type: Integer
+		 * Required: NO
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getIndicesAccessorIdx(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
+		{
+			return m_model.meshes[meshIdx].primitives[primitiveIdx].indices;
+		}
+
+		/**
+		 * The index of the accessor that contains the POSITIONs.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
+		 * Type: VEC3 (Float)
+		 * ! Required: YES (Appears so, needs another pair of eyes to research.)
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getPositionAccessorIdx(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
+		{
+			return m_model.meshes[meshIdx].primitives[primitiveIdx]
+				.attributes.find("POSITION")->second;
+		}
+
+		/**
+		 * Get if a model contains animation.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#reference-animation
+		 * Type: vector<Animation>
+		 * Required: NO
+		*/
+		bool CGLTFMeshFileLoader::MeshExtractor::isAnimated() const {
+			return m_model.animations.size() > 0;
+		}
+
+		/**
+		 * The index of the accessor that contains the NORMALs.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
+		 * Type: VEC3 (Float)
+		 * ! Required: NO (Appears to not be, needs another pair of eyes to research.)
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getNormalAccessorIdx(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
+		{
+			const auto& attributes = m_model.meshes[meshIdx]
+				.primitives[primitiveIdx].attributes;
+			const auto result = attributes.find("NORMAL");
+
+			if (result == attributes.end()) {
+				return -1;
+			}
+			else {
+				return result->second;
+			}
+		}
+
+		/**
+		 * The index of the accessor that contains the NORMALs.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
+		 * Type: VEC3 (Float)
+		 * ! Required: YES (Appears so, needs another pair of eyes to research.)
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getTCoordAccessorIdx(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
+		{
+			const auto& attributes = m_model.meshes[meshIdx]
+				.primitives[primitiveIdx].attributes;
+			const auto result = attributes.find("TEXCOORD_0");
+
+			if (result == attributes.end()) {
+				return -1;
+			}
+			else {
+				return result->second;
+			}
+		}
+
+		/**
+		 * The index of the accessor that contains TEXCOORD_1 (lightmap UVs).
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
+		 * Type: VEC2 (Float)
+		 * Required: NO
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getTCoord1AccessorIdx(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
+		{
+			const auto& attributes = m_model.meshes[meshIdx]
+				.primitives[primitiveIdx].attributes;
+			const auto result = attributes.find("TEXCOORD_1");
+
+			if (result == attributes.end()) {
+				return -1;
+			}
+			else {
+				return result->second;
+			}
+		}
+
+		static bool FakeImageLoader(
+			tinygltf::Image* img,
+			const int image_idx,
+			std::string* err,
+			std::string* warn,
+			int req_width,
+			int req_height,
+			const unsigned char* bytes,
+			int size,
+			void* user_data)
+		{
+			return true;
+		}
+
+		/**
+		 * This is where the actual model's GLTF file is loaded and parsed by tinygltf.
+		*/
+		bool CGLTFMeshFileLoader::tryParseGLTF(io::IReadFile* file,
+			tinygltf::Model& model)
+		{
+			tinygltf::TinyGLTF loader{};
+
+			loader.SetImageLoader(FakeImageLoader, nullptr);
+
+			std::string warn;
+			std::string err;
+			const long size = file->getSize();
+
+			auto buf = std::make_unique<char[]>(size);
+			long readBytes = file->read(buf.get(), size);
+
+			io::path filename = file->getFileName();
+			s32 slash1 = filename.findLast('/');
+			s32 slash2 = filename.findLast('\\');
+			s32 slash = slash1 > slash2 ? slash1 : slash2;
+			io::path baseDir = (slash >= 0) ? filename.subString(0, slash + 1) : "";
+
+			bool ok = loader.LoadASCIIFromString(
+				&model,
+				&err,
+				&warn,
+				buf.get(),
+				size,
+				baseDir.c_str(),
+				1
+			);
+
+			if (!warn.empty()) os::Printer::log(warn.c_str(), ELL_WARNING);
+			if (!err.empty()) os::Printer::log(err.c_str(), ELL_ERROR);
+
+			return ok;
+		}
+
+	} // namespace scene
 
 } // namespace irr
-
