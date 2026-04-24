@@ -193,6 +193,12 @@ namespace irr {
 				copyTCoords2(tCoord1AccessorIdx, vertices);
 			}
 
+			const auto colorAccessorIdx = getColorAccessorIdx(
+				meshIdx, primitiveIdx);
+			if (colorAccessorIdx != static_cast<std::size_t>(-1)) {
+				copyColors(colorAccessorIdx, vertices);
+			}
+
 			return vertices;
 		}
 
@@ -335,6 +341,29 @@ namespace irr {
 				const auto t = readVec2DF(BufferOffset(buffer,
 					(byteStride * i)));
 				vertices[i].TCoords2 = t;
+			}
+		}
+
+		/**
+		 * Streams vertex color raw data into usable buffer via reference.
+		 * COLOR_0 is VEC4 FLOAT with components in [0, 1].
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
+		*/
+		void CGLTFMeshFileLoader::MeshExtractor::copyColors(
+			const std::size_t accessorIdx,
+			std::vector<vertex_t>& vertices) const
+		{
+			const auto& buffer = getBuffer(accessorIdx);
+			const auto count = getElemCount(accessorIdx);
+			const auto byteStride = getByteStride(accessorIdx);
+
+			for (std::size_t i = 0; i < count; ++i) {
+				const BufferOffset base(buffer, byteStride * i);
+				const u8 r = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 0 * sizeof(float))) * 255.0f);
+				const u8 g = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 1 * sizeof(float))) * 255.0f);
+				const u8 b = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 2 * sizeof(float))) * 255.0f);
+				const u8 a = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 3 * sizeof(float))) * 255.0f);
+				vertices[i].Color = video::SColor(a, r, g, b);
 			}
 		}
 
@@ -506,6 +535,28 @@ namespace irr {
 			const auto& attributes = m_model.meshes[meshIdx]
 				.primitives[primitiveIdx].attributes;
 			const auto result = attributes.find("TEXCOORD_1");
+
+			if (result == attributes.end()) {
+				return -1;
+			}
+			else {
+				return result->second;
+			}
+		}
+
+		/**
+		 * The index of the accessor that contains vertex colors (COLOR_0).
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#meshes-overview
+		 * Type: VEC4 (Float)
+		 * Required: NO
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getColorAccessorIdx(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
+		{
+			const auto& attributes = m_model.meshes[meshIdx]
+				.primitives[primitiveIdx].attributes;
+			const auto result = attributes.find("COLOR_0");
 
 			if (result == attributes.end()) {
 				return -1;

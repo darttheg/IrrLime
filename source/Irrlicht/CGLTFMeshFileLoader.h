@@ -138,6 +138,16 @@ namespace irr
 
 				std::size_t getTCoord1AccessorIdx(const std::size_t meshIdx,
 					const std::size_t primitiveIdx) const;
+
+				void copyColors(const std::size_t accessorIdx,
+					std::vector<vertex_t>& vertices) const;
+
+				/* Get the accessor id for COLOR_0 of a primitive.
+				 *
+				 * -1 is returned if none are present.
+				 */
+				std::size_t getColorAccessorIdx(const std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
 			};
 
 			void loadPrimitives(const MeshExtractor& parser, SMesh* mesh);
