@@ -356,13 +356,32 @@ namespace irr {
 			const auto& buffer = getBuffer(accessorIdx);
 			const auto count = getElemCount(accessorIdx);
 			const auto byteStride = getByteStride(accessorIdx);
+			const auto& accessor = m_model.accessors[accessorIdx];
 
 			for (std::size_t i = 0; i < count; ++i) {
 				const BufferOffset base(buffer, byteStride * i);
-				const u8 r = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 0 * sizeof(float))) * 255.0f);
-				const u8 g = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 1 * sizeof(float))) * 255.0f);
-				const u8 b = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 2 * sizeof(float))) * 255.0f);
-				const u8 a = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 3 * sizeof(float))) * 255.0f);
+				u8 r, g, b, a;
+
+				if (accessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+					r = static_cast<u8>(readPrimitive<u16>(BufferOffset(base, 0 * sizeof(u16))) / 257);
+					g = static_cast<u8>(readPrimitive<u16>(BufferOffset(base, 1 * sizeof(u16))) / 257);
+					b = static_cast<u8>(readPrimitive<u16>(BufferOffset(base, 2 * sizeof(u16))) / 257);
+					a = static_cast<u8>(readPrimitive<u16>(BufferOffset(base, 3 * sizeof(u16))) / 257);
+				}
+				else if (accessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE) {
+					r = readPrimitive<u8>(BufferOffset(base, 0));
+					g = readPrimitive<u8>(BufferOffset(base, 1));
+					b = readPrimitive<u8>(BufferOffset(base, 2));
+					a = readPrimitive<u8>(BufferOffset(base, 3));
+				}
+				else {
+					// FLOAT
+					r = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 0 * sizeof(float))) * 255.0f);
+					g = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 1 * sizeof(float))) * 255.0f);
+					b = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 2 * sizeof(float))) * 255.0f);
+					a = static_cast<u8>(readPrimitive<float>(BufferOffset(base, 3 * sizeof(float))) * 255.0f);
+				}
+
 				vertices[i].Color = video::SColor(a, r, g, b);
 			}
 		}
