@@ -12,6 +12,8 @@
 #include "SColor.h"
 #include "SMesh.h"
 #include "vector3d.h"
+#include "matrix4.h"
+#include "quaternion.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -20,6 +22,8 @@
 
 #include <cstddef>
 #include <cstring>
+#include <cmath>
+#include <array>
 #include <memory>
 #include <string>
 #include <utility>
@@ -35,6 +39,22 @@
  * vertex positions and normals, and reversing the winding order
  * of the vertex indices.
  */
+
+static const float SKELETAL_FPS = 24.0f;
+
+static bool FakeImageLoader(
+	tinygltf::Image* img,
+	const int image_idx,
+	std::string* err,
+	std::string* warn,
+	int req_width,
+	int req_height,
+	const unsigned char* bytes,
+	int size,
+	void* user_data)
+{
+	return true;
+}
 
 namespace irr {
 
@@ -90,14 +110,26 @@ namespace irr {
 			}
 
 			MeshExtractor parser(std::move(model));
-			SMesh* baseMesh(new SMesh{});
-			loadPrimitives(parser, baseMesh);
-			baseMesh->recalculateBoundingBox();
 
 			SAnimatedMesh* animatedMesh(new SAnimatedMesh{});
-			animatedMesh->addMesh(baseMesh);
-			baseMesh->drop();
 
+			if (parser.hasSkin()) {
+				// Skeletal animation: bake each frame into a static SMesh.
+				// Frame 0 is the base pose (time=0), subsequent frames are
+				// baked at 1/24s intervals across all concatenated animations.
+				loadSkeletalFrames(parser, animatedMesh);
+			}
+			else {
+				// No skeleton: load base mesh + morph targets as before.
+				SMesh* baseMesh(new SMesh{});
+				loadPrimitives(parser, baseMesh);
+				baseMesh->recalculateBoundingBox();
+				animatedMesh->addMesh(baseMesh); // frame 0 = base pose
+				baseMesh->drop();
+				loadMorphTargets(parser, animatedMesh); // frames 1..N
+			}
+
+			animatedMesh->setAnimationSpeed(0);
 			animatedMesh->recalculateBoundingBox();
 			return animatedMesh;
 		}
@@ -122,6 +154,35 @@ namespace irr {
 						indices.data(), indices.size());
 					mesh->addMeshBuffer(meshbuf);
 					meshbuf->drop();
+				}
+			}
+		}
+
+		void CGLTFMeshFileLoader::loadMorphTargets(
+			const MeshExtractor& parser,
+			SAnimatedMesh* animatedMesh)
+		{
+			for (std::size_t i = 0; i < parser.getMeshCount(); ++i) {
+				for (std::size_t j = 0; j < parser.getPrimitiveCount(i); ++j) {
+					const std::size_t targetCount = parser.getMorphTargetCount(i, j);
+					if (targetCount == 0)
+						continue;
+
+					auto indices = parser.getIndices(i, j);
+
+					for (std::size_t t = 0; t < targetCount; ++t) {
+						auto vertices = parser.getMorphTargetVertices(i, j, t);
+
+						SMesh* frameMesh(new SMesh{});
+						SMeshBufferLightMap* meshbuf(new SMeshBufferLightMap{});
+						meshbuf->append(vertices.data(), vertices.size(),
+							indices.data(), indices.size());
+						frameMesh->addMeshBuffer(meshbuf);
+						meshbuf->drop();
+						frameMesh->recalculateBoundingBox();
+						animatedMesh->addMesh(frameMesh);
+						frameMesh->drop();
+					}
 				}
 			}
 		}
@@ -585,19 +646,448 @@ namespace irr {
 			}
 		}
 
-		static bool FakeImageLoader(
-			tinygltf::Image* img,
-			const int image_idx,
-			std::string* err,
-			std::string* warn,
-			int req_width,
-			int req_height,
-			const unsigned char* bytes,
-			int size,
-			void* user_data)
+		/**
+		 * Get the number of morph targets for a given mesh primitive.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#morph-targets
+		*/
+		std::size_t CGLTFMeshFileLoader::MeshExtractor::getMorphTargetCount(
+			const std::size_t meshIdx,
+			const std::size_t primitiveIdx) const
 		{
-			return true;
+			return m_model.meshes[meshIdx].primitives[primitiveIdx].targets.size();
 		}
+
+		/**
+		 * Build a vertex array for a morph target frame by applying POSITION
+		 * and NORMAL deltas (if present) onto the base mesh vertices.
+		 *
+		 * glTF morph targets store deltas, not absolute values.
+		 * The same Z-negation coordinate flip used in readVec3DF is applied.
+		 * Documentation: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#morph-targets
+		*/
+		std::vector<CGLTFMeshFileLoader::MeshExtractor::vertex_t>
+			CGLTFMeshFileLoader::MeshExtractor::getMorphTargetVertices(
+				const std::size_t meshIdx,
+				const std::size_t primitiveIdx,
+				const std::size_t targetIdx) const
+		{
+			// Start from the fully-populated base vertices (positions, normals,
+			// UVs, colors) so non-positional attributes are preserved.
+			auto vertices = getVertices(meshIdx, primitiveIdx);
+
+			const auto& target = m_model.meshes[meshIdx]
+				.primitives[primitiveIdx].targets[targetIdx];
+
+			// Apply POSITION deltas
+			const auto posIt = target.find("POSITION");
+			if (posIt != target.end()) {
+				const std::size_t accessorIdx = posIt->second;
+				const auto& buffer = getBuffer(accessorIdx);
+				const auto count = getElemCount(accessorIdx);
+				const auto byteStride = getByteStride(accessorIdx);
+				const auto scale = getScale();
+
+				for (std::size_t i = 0; i < count && i < vertices.size(); ++i) {
+					const auto delta = readVec3DF(
+						BufferOffset(buffer, byteStride * i), scale);
+					vertices[i].Pos += delta;
+				}
+			}
+
+			// Apply NORMAL deltas
+			const auto normIt = target.find("NORMAL");
+			if (normIt != target.end()) {
+				const std::size_t accessorIdx = normIt->second;
+				const auto& buffer = getBuffer(accessorIdx);
+				const auto count = getElemCount(accessorIdx);
+				const auto byteStride = getByteStride(accessorIdx);
+
+				for (std::size_t i = 0; i < count && i < vertices.size(); ++i) {
+					const auto delta = readVec3DF(
+						BufferOffset(buffer, byteStride * i));
+					vertices[i].Normal += delta;
+					vertices[i].Normal.normalize();
+				}
+			}
+
+			return vertices;
+		}
+
+
+		bool CGLTFMeshFileLoader::MeshExtractor::hasSkin() const
+		{
+			return !m_model.skins.empty();
+		}
+
+		int CGLTFMeshFileLoader::MeshExtractor::getTotalSkeletalFrameCount() const
+		{
+			float totalSeconds = 0.0f;
+			for (const auto& anim : m_model.animations) {
+				float animMax = 0.0f;
+				for (const auto& channel : anim.channels) {
+					const auto& sampler = anim.samplers[channel.sampler];
+					const auto& accessor = m_model.accessors[sampler.input];
+					const auto& view = m_model.bufferViews[accessor.bufferView];
+					const float* times = reinterpret_cast<const float*>(
+						m_model.buffers[view.buffer].data.data()
+						+ view.byteOffset + accessor.byteOffset);
+					if (accessor.count > 0) {
+						float last = times[accessor.count - 1];
+						if (last > animMax) animMax = last;
+					}
+				}
+				totalSeconds += animMax;
+			}
+			return static_cast<int>(std::ceil(totalSeconds * SKELETAL_FPS));
+		}
+
+		static core::vector3df sampleVec3(
+			const tinygltf::Model& model,
+			const int accessorIdx,
+			const std::size_t idx)
+		{
+			const auto& accessor = model.accessors[accessorIdx];
+			const auto& view = model.bufferViews[accessor.bufferView];
+			const float* data = reinterpret_cast<const float*>(
+				model.buffers[view.buffer].data.data()
+				+ view.byteOffset + accessor.byteOffset);
+			return core::vector3df(data[idx * 3], data[idx * 3 + 1], data[idx * 3 + 2]);
+		}
+
+		static core::quaternion sampleQuat(
+			const tinygltf::Model& model,
+			const int accessorIdx,
+			const std::size_t idx)
+		{
+			const auto& accessor = model.accessors[accessorIdx];
+			const auto& view = model.bufferViews[accessor.bufferView];
+			const float* data = reinterpret_cast<const float*>(
+				model.buffers[view.buffer].data.data()
+				+ view.byteOffset + accessor.byteOffset);
+			return core::quaternion(
+				-data[idx * 4 + 3],
+				-data[idx * 4],
+				-data[idx * 4 + 1],
+				-data[idx * 4 + 2]);
+		}
+
+		static core::vector3df lerpVec3(
+			const core::vector3df& a, const core::vector3df& b, float t)
+		{
+			return a + (b - a) * t;
+		}
+
+		static void findKeyframeBlend(
+			const tinygltf::Model& model,
+			const int inputAccessorIdx,
+			const float time,
+			std::size_t& outIdx,
+			float& outT)
+		{
+			const auto& accessor = model.accessors[inputAccessorIdx];
+			const auto& view = model.bufferViews[accessor.bufferView];
+			const float* times = reinterpret_cast<const float*>(
+				model.buffers[view.buffer].data.data()
+				+ view.byteOffset + accessor.byteOffset);
+			const std::size_t count = accessor.count;
+
+			if (count == 0) { outIdx = 0; outT = 0.0f; return; }
+			if (time <= times[0]) { outIdx = 0; outT = 0.0f; return; }
+			if (time >= times[count - 1]) { outIdx = count - 1; outT = 0.0f; return; }
+
+			for (std::size_t i = 0; i < count - 1; ++i) {
+				if (time >= times[i] && time < times[i + 1]) {
+					outIdx = i;
+					outT = (time - times[i]) / (times[i + 1] - times[i]);
+					return;
+				}
+			}
+			outIdx = count - 1;
+			outT = 0.0f;
+		}
+
+		std::vector<core::matrix4> CGLTFMeshFileLoader::MeshExtractor::buildJointMatrices(
+			float timeSeconds) const
+		{
+			const auto& skin = m_model.skins[0];
+			const std::size_t jointCount = skin.joints.size();
+			const std::size_t nodeCount = m_model.nodes.size();
+
+			std::vector<std::array<float, 3>> T(nodeCount, { 0,0,0 });
+			std::vector<std::array<float, 4>> R(nodeCount, { 0,0,0,1 });
+			std::vector<std::array<float, 3>> S(nodeCount, { 1,1,1 });
+
+			for (std::size_t i = 0; i < nodeCount; ++i) {
+				const auto& node = m_model.nodes[i];
+				if (node.translation.size() == 3)
+					T[i] = { (float)node.translation[0], (float)node.translation[1], (float)node.translation[2] };
+				if (node.rotation.size() == 4)
+					R[i] = { (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3] };
+				if (node.scale.size() == 3)
+					S[i] = { (float)node.scale[0], (float)node.scale[1], (float)node.scale[2] };
+			}
+
+			float localTime = timeSeconds;
+			for (const auto& anim : m_model.animations) {
+				float animDuration = 0.0f;
+				for (const auto& channel : anim.channels) {
+					const auto& sampler = anim.samplers[channel.sampler];
+					const auto& acc = m_model.accessors[sampler.input];
+					const auto& view = m_model.bufferViews[acc.bufferView];
+					const float* times = reinterpret_cast<const float*>(
+						m_model.buffers[view.buffer].data.data() + view.byteOffset + acc.byteOffset);
+					if (acc.count > 0 && times[acc.count - 1] > animDuration)
+						animDuration = times[acc.count - 1];
+				}
+
+				if (localTime <= animDuration || &anim == &m_model.animations.back()) {
+					for (const auto& channel : anim.channels) {
+						if (channel.target_node < 0) continue;
+						const std::size_t ni = (std::size_t)channel.target_node;
+						const auto& sampler = anim.samplers[channel.sampler];
+						const bool isStep = sampler.interpolation == "STEP";
+
+						std::size_t kIdx = 0; float blend = 0.0f;
+						findKeyframeBlend(m_model, sampler.input, localTime, kIdx, blend);
+						if (isStep) blend = 0.0f;
+
+						const auto& outAcc = m_model.accessors[sampler.output];
+						const auto& outView = m_model.bufferViews[outAcc.bufferView];
+						const float* outData = reinterpret_cast<const float*>(
+							m_model.buffers[outView.buffer].data.data() + outView.byteOffset + outAcc.byteOffset);
+
+						if (channel.target_path == "translation") {
+							const float* a = outData + kIdx * 3;
+							if (blend > 0.0f) {
+								const float* b = outData + (kIdx + 1) * 3;
+								T[ni] = { a[0] + (b[0] - a[0]) * blend, a[1] + (b[1] - a[1]) * blend, a[2] + (b[2] - a[2]) * blend };
+							}
+							else {
+								T[ni] = { a[0], a[1], a[2] };
+							}
+						}
+						else if (channel.target_path == "rotation") {
+							const float* a = outData + kIdx * 4;
+							if (blend > 0.0f) {
+								const float* b = outData + (kIdx + 1) * 4;
+								float dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+								float s = dot < 0.0f ? -1.0f : 1.0f;
+								float qa[4] = { a[0], a[1], a[2], a[3] };
+								float qb[4] = { s * b[0], s * b[1], s * b[2], s * b[3] };
+								float r[4];
+								for (int k = 0; k < 4; ++k) r[k] = qa[k] + (qb[k] - qa[k]) * blend;
+								float len = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]);
+								if (len > 0.0f) for (int k = 0; k < 4; ++k) r[k] /= len;
+								R[ni] = { r[0], r[1], r[2], r[3] };
+							}
+							else {
+								R[ni] = { a[0], a[1], a[2], a[3] };
+							}
+						}
+						else if (channel.target_path == "scale") {
+							const float* a = outData + kIdx * 3;
+							if (blend > 0.0f) {
+								const float* b = outData + (kIdx + 1) * 3;
+								S[ni] = { a[0] + (b[0] - a[0]) * blend, a[1] + (b[1] - a[1]) * blend, a[2] + (b[2] - a[2]) * blend };
+							}
+							else {
+								S[ni] = { a[0], a[1], a[2] };
+							}
+						}
+					}
+					break;
+				}
+				localTime -= animDuration;
+			}
+
+			auto trsToMatrix = [](const std::array<float, 3>& t,
+				const std::array<float, 4>& r,
+				const std::array<float, 3>& s) -> core::matrix4 {
+					float x = r[0], y = r[1], z = r[2], w = r[3];
+					core::matrix4 m;
+					m[0] = (1 - 2 * (y * y + z * z)) * s[0]; m[4] = 2 * (x * y - z * w) * s[1]; m[8] = 2 * (x * z + y * w) * s[2]; m[12] = t[0];
+					m[1] = 2 * (x * y + z * w) * s[0]; m[5] = (1 - 2 * (x * x + z * z)) * s[1]; m[9] = 2 * (y * z - x * w) * s[2]; m[13] = t[1];
+					m[2] = 2 * (x * z - y * w) * s[0]; m[6] = 2 * (y * z + x * w) * s[1]; m[10] = (1 - 2 * (x * x + y * y)) * s[2]; m[14] = t[2];
+					m[3] = 0;                     m[7] = 0;                     m[11] = 0;                     m[15] = 1;
+					return m;
+				};
+
+			std::vector<int> parent(nodeCount, -1);
+			for (std::size_t i = 0; i < nodeCount; ++i)
+				for (int child : m_model.nodes[i].children)
+					parent[child] = (int)i;
+
+			std::vector<core::matrix4> globalTransforms(nodeCount);
+			std::vector<bool> resolved(nodeCount, false);
+			bool anyResolved = true;
+			while (anyResolved) {
+				anyResolved = false;
+				for (std::size_t i = 0; i < nodeCount; ++i) {
+					if (resolved[i]) continue;
+					if (parent[i] != -1 && !resolved[parent[i]]) continue;
+					core::matrix4 local = trsToMatrix(T[i], R[i], S[i]);
+					globalTransforms[i] = (parent[i] == -1)
+						? local
+						: globalTransforms[parent[i]] * local;
+					resolved[i] = true;
+					anyResolved = true;
+				}
+			}
+
+			std::vector<core::matrix4> inverseBindMatrices(jointCount);
+			if (skin.inverseBindMatrices >= 0) {
+				const auto& acc = m_model.accessors[skin.inverseBindMatrices];
+				const auto& view = m_model.bufferViews[acc.bufferView];
+				const float* data = reinterpret_cast<const float*>(
+					m_model.buffers[view.buffer].data.data() + view.byteOffset + acc.byteOffset);
+				for (std::size_t j = 0; j < jointCount; ++j) {
+					core::matrix4& m = inverseBindMatrices[j];
+					for (int i = 0; i < 16; ++i)
+						m[i] = data[j * 16 + i];
+				}
+			}
+
+			std::vector<core::matrix4> jointMatrices(jointCount);
+			for (std::size_t j = 0; j < jointCount; ++j)
+				jointMatrices[j] = globalTransforms[skin.joints[j]] * inverseBindMatrices[j];
+
+			return jointMatrices;
+		}
+
+		std::vector<CGLTFMeshFileLoader::MeshExtractor::vertex_t>
+			CGLTFMeshFileLoader::MeshExtractor::getSkinnedVertices(
+				const std::size_t meshIdx,
+				const std::size_t primitiveIdx,
+				const std::vector<core::matrix4>& jointMatrices) const
+		{
+			auto vertices = getVertices(meshIdx, primitiveIdx);
+			const auto& primitive = m_model.meshes[meshIdx].primitives[primitiveIdx];
+
+			const auto jointsIt = primitive.attributes.find("JOINTS_0");
+			const auto weightsIt = primitive.attributes.find("WEIGHTS_0");
+			if (jointsIt == primitive.attributes.end()
+				|| weightsIt == primitive.attributes.end())
+				return vertices;
+
+			const auto& jointsAcc = m_model.accessors[jointsIt->second];
+			const auto& weightsAcc = m_model.accessors[weightsIt->second];
+			const auto& jointsView = m_model.bufferViews[jointsAcc.bufferView];
+			const auto& weightsView = m_model.bufferViews[weightsAcc.bufferView];
+
+			const std::size_t count = jointsAcc.count;
+			const std::size_t jointsStride = jointsAcc.ByteStride(jointsView);
+			const std::size_t weightsStride = weightsAcc.ByteStride(weightsView);
+
+			const unsigned char* jointsData =
+				m_model.buffers[jointsView.buffer].data.data()
+				+ jointsView.byteOffset + jointsAcc.byteOffset;
+			const unsigned char* weightsData =
+				m_model.buffers[weightsView.buffer].data.data()
+				+ weightsView.byteOffset + weightsAcc.byteOffset;
+
+			const auto posAccessorIdx = getPositionAccessorIdx(meshIdx, primitiveIdx);
+			const auto& posBuf = getBuffer(posAccessorIdx);
+			const auto posStride = getByteStride(posAccessorIdx);
+			const auto scale = getScale();
+			const auto normalAccessorIdx = getNormalAccessorIdx(meshIdx, primitiveIdx);
+			const bool hasNormals = normalAccessorIdx != static_cast<std::size_t>(-1);
+
+			const unsigned char* normalData = nullptr;
+			std::size_t normalStride = 0;
+			if (hasNormals) {
+				const auto& nAcc = m_model.accessors[normalAccessorIdx];
+				const auto& nView = m_model.bufferViews[nAcc.bufferView];
+				normalData = m_model.buffers[nView.buffer].data.data()
+					+ nView.byteOffset + nAcc.byteOffset;
+				normalStride = nAcc.ByteStride(nView);
+			}
+
+			for (std::size_t i = 0; i < count && i < vertices.size(); ++i) {
+				u16 joints[4] = {};
+				if (jointsAcc.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE) {
+					const unsigned char* j = jointsData + jointsStride * i;
+					joints[0] = j[0]; joints[1] = j[1];
+					joints[2] = j[2]; joints[3] = j[3];
+				}
+				else {
+					const u16* j = reinterpret_cast<const u16*>(
+						jointsData + jointsStride * i);
+					joints[0] = j[0]; joints[1] = j[1];
+					joints[2] = j[2]; joints[3] = j[3];
+				}
+
+				const float* w = reinterpret_cast<const float*>(
+					weightsData + weightsStride * i);
+
+				const BufferOffset posOff(posBuf, posStride * i);
+				core::vector3df rawPos(
+					scale.X * readPrimitive<float>(posOff),
+					scale.Y * readPrimitive<float>(BufferOffset(posOff, sizeof(float))),
+					scale.Z * readPrimitive<float>(BufferOffset(posOff, 2 * sizeof(float))));
+
+				core::vector3df skinnedPos(0, 0, 0);
+				core::vector3df skinnedNormal(0, 0, 0);
+
+				core::vector3df rawNormal(0, 0, 0);
+				if (hasNormals && normalData) {
+					const float* nf = reinterpret_cast<const float*>(
+						normalData + normalStride * i);
+					rawNormal = core::vector3df(nf[0], nf[1], nf[2]);
+				}
+
+				for (int k = 0; k < 4; ++k) {
+					if (w[k] == 0.0f) continue;
+					if (joints[k] >= jointMatrices.size()) continue;
+					const auto& jm = jointMatrices[joints[k]];
+					core::vector3df p = rawPos;
+					jm.transformVect(p);
+					skinnedPos += p * w[k];
+					if (hasNormals) {
+						core::vector3df n = rawNormal;
+						jm.rotateVect(n);
+						skinnedNormal += n * w[k];
+					}
+				}
+
+				vertices[i].Pos = core::vector3df(skinnedPos.X, skinnedPos.Y, -skinnedPos.Z);
+				if (hasNormals) {
+					skinnedNormal.normalize();
+					vertices[i].Normal = core::vector3df(skinnedNormal.X, skinnedNormal.Y, -skinnedNormal.Z);
+				}
+			}
+
+			return vertices;
+		}
+
+		void CGLTFMeshFileLoader::loadSkeletalFrames(
+			const MeshExtractor& parser,
+			SAnimatedMesh* animatedMesh)
+		{
+			const int totalFrames = parser.getTotalSkeletalFrameCount();
+
+			for (int frame = 0; frame <= totalFrames; ++frame) {
+				const float time = frame / SKELETAL_FPS;
+				const auto jointMatrices = parser.buildJointMatrices(time);
+
+				SMesh* frameMesh(new SMesh{});
+				for (std::size_t i = 0; i < parser.getMeshCount(); ++i) {
+					for (std::size_t j = 0; j < parser.getPrimitiveCount(i); ++j) {
+						auto indices = parser.getIndices(i, j);
+						auto vertices = parser.getSkinnedVertices(i, j, jointMatrices);
+
+						SMeshBufferLightMap* meshbuf(new SMeshBufferLightMap{});
+						meshbuf->append(vertices.data(), vertices.size(),
+							indices.data(), indices.size());
+						frameMesh->addMeshBuffer(meshbuf);
+						meshbuf->drop();
+					}
+				}
+				frameMesh->recalculateBoundingBox();
+				animatedMesh->addMesh(frameMesh);
+				frameMesh->drop();
+			}
+		}
+
 
 		/**
 		 * This is where the actual model's GLTF file is loaded and parsed by tinygltf.

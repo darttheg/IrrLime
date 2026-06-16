@@ -5,8 +5,11 @@
 #include "IMeshLoader.h"
 #include "IReadFile.h"
 #include "irrTypes.h"
+#include "matrix4.h"
 #include "path.h"
+#include "quaternion.h"
 #include "S3DVertex.h"
+#include "SAnimatedMesh.h"
 #include "SMesh.h"
 #include "SMeshBufferLightMap.h"
 #include "vector2d.h"
@@ -15,6 +18,7 @@
 #include <tinygltf/tiny_gltf.h>
 
 #include <cstddef>
+#include <unordered_map>
 #include <vector>
 
 namespace irr
@@ -54,12 +58,10 @@ namespace irr
 				using vertex_t = video::S3DVertex2TCoords;
 
 				MeshExtractor(const tinygltf::Model& model) noexcept;
-
 				MeshExtractor(const tinygltf::Model&& model) noexcept;
 
 				/* Gets indices for the given mesh/primitive.
-				 *
-				 * Values are return in Irrlicht winding order.
+				 * Values are returned in Irrlicht winding order.
 				 */
 				std::vector<u16> getIndices(const std::size_t meshIdx,
 					const std::size_t primitiveIdx) const;
@@ -71,6 +73,38 @@ namespace irr
 
 				std::size_t getPrimitiveCount(const std::size_t meshIdx) const;
 
+				/* Get the number of morph targets for a given primitive. */
+				std::size_t getMorphTargetCount(const std::size_t meshIdx,
+					const std::size_t primitiveIdx) const;
+
+				/* Get vertices for a morph target frame.
+				 * Applies POSITION and NORMAL deltas from the given target
+				 * onto the base vertices.
+				 */
+				std::vector<vertex_t> getMorphTargetVertices(
+					const std::size_t meshIdx,
+					const std::size_t primitiveIdx,
+					const std::size_t targetIdx) const;
+
+				/* Returns true if the model has skin data. */
+				bool hasSkin() const;
+
+				/* Returns the total baked frame count across all animations
+				 * concatenated, at 24fps. */
+				int getTotalSkeletalFrameCount() const;
+
+				/* Build a flat array of joint skinning matrices for a given
+				 * time in seconds, sampling all animations concatenated. */
+				std::vector<core::matrix4> buildJointMatrices(
+					float timeSeconds) const;
+
+				/* Returns skinned vertices for a mesh/primitive given
+				 * pre-built joint matrices. */
+				std::vector<vertex_t> getSkinnedVertices(
+					const std::size_t meshIdx,
+					const std::size_t primitiveIdx,
+					const std::vector<core::matrix4>& jointMatrices) const;
+
 			private:
 				tinygltf::Model m_model;
 
@@ -81,7 +115,6 @@ namespace irr
 					const BufferOffset& readFrom);
 
 				/* Read a vec3df from a buffer with transformations applied.
-				 *
 				 * Values are returned in Irrlicht coordinates.
 				 */
 				static core::vector3df readVec3DF(
@@ -101,7 +134,6 @@ namespace irr
 					std::vector<vertex_t>& vertices) const;
 
 				/* Get the scale factor from the glTF mesh information.
-				 *
 				 * Returns vec3(1.0, 1.0, 1.0) if no scale factor is present.
 				 */
 				core::vector3df getScale() const;
@@ -123,14 +155,12 @@ namespace irr
 				bool isAnimated() const;
 
 				/* Get the accessor id of the normals of a primitive.
-				 *
 				 * -1 is returned if none are present.
 				 */
 				std::size_t getNormalAccessorIdx(const std::size_t meshIdx,
 					const std::size_t primitiveIdx) const;
 
 				/* Get the accessor id for the tcoords of a primitive.
-				 *
 				 * -1 is returned if none are present.
 				 */
 				std::size_t getTCoordAccessorIdx(const std::size_t meshIdx,
@@ -143,7 +173,6 @@ namespace irr
 					std::vector<vertex_t>& vertices) const;
 
 				/* Get the accessor id for COLOR_0 of a primitive.
-				 *
 				 * -1 is returned if none are present.
 				 */
 				std::size_t getColorAccessorIdx(const std::size_t meshIdx,
@@ -151,6 +180,12 @@ namespace irr
 			};
 
 			void loadPrimitives(const MeshExtractor& parser, SMesh* mesh);
+
+			void loadMorphTargets(const MeshExtractor& parser,
+				SAnimatedMesh* animatedMesh);
+
+			void loadSkeletalFrames(const MeshExtractor& parser,
+				SAnimatedMesh* animatedMesh);
 
 			static bool tryParseGLTF(io::IReadFile* file,
 				tinygltf::Model& model);
