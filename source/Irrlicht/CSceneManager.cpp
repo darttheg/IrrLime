@@ -132,6 +132,8 @@
 #include "CPLYMeshWriter.h"
 #endif
 
+#include "CGLTFMeshFileLoader.h"
+
 #include "CCubeSceneNode.h"
 #include "CSphereSceneNode.h"
 #include "CAnimatedMeshSceneNode.h"
@@ -294,11 +296,12 @@ CSceneManager::CSceneManager(video::IVideoDriver* driver, io::IFileSystem* fs,
 	MeshLoaderList.push_back(new CB3DMeshFileLoader(this));
 	#endif
 
+	MeshLoaderList.push_back(new CGLTFMeshFileLoader());
+
 	// scene loaders
 	#ifdef _IRR_COMPILE_WITH_IRR_SCENE_LOADER_
 	SceneLoaderList.push_back(new CSceneLoaderIrr(this, FileSystem));
 	#endif
-
 
 	// factories
 	ISceneNodeFactory* factory = new CDefaultSceneNodeFactory(this);
