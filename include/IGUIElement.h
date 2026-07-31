@@ -76,7 +76,7 @@ public:
 		if (zOrder != z) {
 			zOrder = z;
 			if (Parent)
-				Parent->zOrder = true;
+				Parent->zDirty = true;
 		}
 	}
 
@@ -995,7 +995,7 @@ protected:
 	std::vector<IGUIElement*> sortedChildren;
 
 	//! Z Order
-	uint16_t zOrder;
+	uint16_t zOrder = 0;
 
 	//! List of all children of this element
 	core::list<IGUIElement*> Children;
