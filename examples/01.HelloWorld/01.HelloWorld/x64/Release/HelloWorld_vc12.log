@@ -1,3 +1,0 @@
-﻿  main.cpp
-D:\Visual Studio 2022 Community\MSBuild\Microsoft\VC\v170\Microsoft.CppBuild.targets(1392,5): warning MSB8012: TargetPath(D:\Irrlicht\irrlicht-1.8.5\bin\Win32-VisualStudio\01.HelloWorld.exe) does not match the Linker's OutputFile property value (D:\Irrlicht\irrlicht-1.8.5\bin\Win64-VisualStudio\01.HelloWorld.exe). This may cause your project to build incorrectly. To correct this, please make sure that $(OutDir), $(TargetName) and $(TargetExt) property values match the value specified in %(Link.OutputFile).
-  HelloWorld_vc12.vcxproj -> D:\Irrlicht\irrlicht-1.8.5\bin\Win32-VisualStudio\01.HelloWorld.exe

@@ -138,6 +138,9 @@ namespace os
 #include <stdio.h>
 #include <time.h>
 #include <sys/time.h>
+#ifdef _IRR_ANDROID_PLATFORM_
+#include <android/log.h>
+#endif
 
 namespace irr
 {
@@ -147,7 +150,11 @@ namespace os
 	//! prints a debuginfo string
 	void Printer::print(const c8* message)
 	{
+#ifdef _IRR_ANDROID_PLATFORM_
+		__android_log_print(ANDROID_LOG_INFO, "Irrlicht", "%s", message);
+#else
 		printf("%s\n", message);
+#endif
 	}
 
 	void Timer::initTimer(bool usePerformanceTimer)

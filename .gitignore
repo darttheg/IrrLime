@@ -1,5 +1,12 @@
 /.vs
-/x64
+/source/Irrlicht/.vs
 *.aps
 *.user
-/source/Irrlicht/.vs
+obj/
+x64/
+Debug/
+Release/
+*.tlog
+*.ilk
+*.iobj
+*.ipdb

@@ -102,7 +102,12 @@
 #define _IRR_LINUX_PLATFORM_
 #endif
 #define _IRR_POSIX_API_
+#if defined(__ANDROID__)
+#define _IRR_ANDROID_PLATFORM_
+#define _IRR_COMPILE_WITH_ANDROID_DEVICE_
+#else
 #define _IRR_COMPILE_WITH_X11_DEVICE_
+#endif
 #endif
 
 
@@ -193,7 +198,7 @@ define out. */
 //! Define _IRR_OPENGL_USE_EXTPOINTER_ if the OpenGL renderer should use OpenGL extensions via function pointers.
 /** On some systems there is no support for the dynamic extension of OpenGL
 	via function pointers such that this has to be undef'ed. */
-#if !defined(_IRR_OSX_PLATFORM_) && !defined(_IRR_SOLARIS_PLATFORM_)
+#if !defined(_IRR_OSX_PLATFORM_) && !defined(_IRR_SOLARIS_PLATFORM_) && !defined(_IRR_ANDROID_PLATFORM_)
 #define _IRR_OPENGL_USE_EXTPOINTER_
 #endif
 

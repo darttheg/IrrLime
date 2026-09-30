@@ -37,6 +37,10 @@
 	#if defined(_IRR_OPENGL_USE_EXTPOINTER_)
 		#include "glext.h"
 	#endif
+#elif defined(_IRR_ANDROID_PLATFORM_)
+	#define GL_GLEXT_PROTOTYPES 1
+	#include <GL/gl.h>
+	#include <GL/glext.h>
 #elif defined(_IRR_COMPILE_WITH_SDL_DEVICE_) && !defined(_IRR_COMPILE_WITH_X11_DEVICE_)
 	#if defined(_IRR_OPENGL_USE_EXTPOINTER_)
 		#define GL_GLEXT_LEGACY 1

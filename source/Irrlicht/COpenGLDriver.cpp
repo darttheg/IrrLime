@@ -25,6 +25,10 @@
 #include <SDL/SDL.h>
 #endif
 
+#ifdef _IRR_COMPILE_WITH_ANDROID_DEVICE_
+#include "CIrrDeviceAndroid.h"
+#endif
+
 namespace irr
 {
 namespace video
@@ -614,6 +618,26 @@ COpenGLDriver::COpenGLDriver(const SIrrlichtCreationParameters& params,
 
 #endif // _IRR_COMPILE_WITH_SDL_DEVICE_
 
+#ifdef _IRR_COMPILE_WITH_ANDROID_DEVICE_
+COpenGLDriver::COpenGLDriver(const SIrrlichtCreationParameters& params,
+		io::IFileSystem* io, CIrrDeviceAndroid* device)
+: CNullDriver(io, params.WindowSize), COpenGLExtensionHandler(),
+	CurrentRenderMode(ERM_NONE), ResetRenderStates(true),
+	Transformation3DChanged(true), AntiAlias(params.AntiAlias),
+	RenderTargetTexture(0), CurrentRendertargetSize(0,0), ColorFormat(ECF_R8G8B8),
+	CurrentTarget(ERT_FRAME_BUFFER), Params(params),
+	AndroidDevice(device), DeviceType(EIDT_ANDROID)
+{
+	#ifdef _DEBUG
+	setDebugName("COpenGLDriver");
+	#endif
+	#ifdef _IRR_COMPILE_WITH_CG_
+	CgContext = 0;
+	#endif
+	genericDriverInit();
+}
+#endif
+
 
 //! destructor
 COpenGLDriver::~COpenGLDriver()
@@ -704,6 +728,7 @@ bool COpenGLDriver::genericDriverInit()
 	DriverAttributes->setAttribute("AntiAlias", AntiAlias);
 
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
 	// Reset The Current Viewport
 	glViewport(0, 0, Params.WindowSize.Width, Params.WindowSize.Height);
@@ -858,6 +883,11 @@ bool COpenGLDriver::endScene()
 		SDL_GL_SwapBuffers();
 		return true;
 	}
+#endif
+
+#ifdef _IRR_COMPILE_WITH_ANDROID_DEVICE_
+	if (DeviceType == EIDT_ANDROID)
+		return AndroidDevice->swapBuffers();
 #endif
 
 	// todo: console device present
@@ -4824,6 +4854,18 @@ IVideoDriver* createOpenGLDriver(const SIrrlichtCreationParameters& params,
 #endif //  _IRR_COMPILE_WITH_OPENGL_
 }
 #endif // _IRR_COMPILE_WITH_SDL_DEVICE_
+
+#ifdef _IRR_COMPILE_WITH_ANDROID_DEVICE_
+IVideoDriver* createOpenGLDriver(const SIrrlichtCreationParameters& params,
+		io::IFileSystem* io, CIrrDeviceAndroid* device)
+{
+#ifdef _IRR_COMPILE_WITH_OPENGL_
+	return new COpenGLDriver(params, io, device);
+#else
+	return 0;
+#endif
+}
+#endif
 
 } // end namespace
 } // end namespace
